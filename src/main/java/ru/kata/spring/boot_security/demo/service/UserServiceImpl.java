@@ -1,99 +1,83 @@
 package ru.kata.spring.boot_security.demo.service;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import ru.kata.spring.boot_security.demo.model.Role;
-import ru.kata.spring.boot_security.demo.model.User;
-import ru.kata.spring.boot_security.demo.repositories.UserRepository;
+import org.springframework.transaction.annotation.Transactional;
+import ru.kata.spring.boot_security.demo.dao.UserDAO;
+import ru.kata.spring.boot_security.demo.entity.User;
 
-import javax.transaction.Transactional;
-import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
-import java.util.Set;
 
 @Service
-public class UserServiceImpl implements UserService {
-
-    private final UserRepository userRepository;
-    private final RoleSerivce roleSerivce;
-    private final BCryptPasswordEncoder bCryptPasswordEncoder;
+@Transactional
+public class UserServiceImpl implements UserService, UserDetailsService {
+    private final UserDAO userRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @Autowired
-    public UserServiceImpl(UserRepository userRepository, RoleSerivce roleSerivce, BCryptPasswordEncoder bCryptPasswordEncoder) {
+    public UserServiceImpl(UserDAO userRepository, @Lazy PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
-        this.roleSerivce = roleSerivce;
-        this.bCryptPasswordEncoder = bCryptPasswordEncoder;
-
+        this.passwordEncoder = passwordEncoder;
     }
-    @Override
-    public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
-        Optional<User> user = userRepository.findUserByEmail(email);
 
-        if (user.isEmpty()) {
+    @Override
+    public void saveUser(User user) {
+        user.setPassword(passwordEncoder.encode(user.getPassword()));
+        userRepository.addUser(user);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<User> getAllUsers() {
+        return userRepository.getAllUsers();
+    }
+
+    @Override
+    public void delete(Long userId) {
+        userRepository.removeUserById(userId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public User findUserById(Long id) {
+        User user = userRepository.getUserById(id);
+        if (user != null) {
+            return user;
+        } else {
+            throw new UsernameNotFoundException("User with Id " + id + " not found");
+        }
+    }
+
+    @Override
+    public void updateUser( User updateUser) {
+        updateUser.setPassword(passwordEncoder.encode(updateUser.getPassword()));
+        userRepository.updateUser(updateUser);
+    }
+
+    @Override
+    public User findUserByUsername(String username) {
+        return userRepository.findByUsername(username);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        User user = userRepository.findByUsername(username);
+        if (user == null) {
             throw new UsernameNotFoundException("User not found");
         }
-        return user.get();
+        return user;
     }
 
-    @Transactional
-    public boolean saveUser(User user) {
-        if (userRepository.findUserByName(user.getName()).isPresent()) {
-            return false;
-        }
-        user.setRoles(Collections.singleton(new Role(1, "ROLE_USER")));
-        user.setPassword(bCryptPasswordEncoder.encode(user.getPassword()));
-        userRepository.save(user);
-        return true;
-    }
-    @Transactional
-    public boolean saveUser(User user, List<String> rolesFromView) {
-        if (userRepository.findUserByName(user.getName()).isPresent()) {
-            return false;
-        }
-        Set<Role> roles = roleSerivce.findByRoleNameIn(rolesFromView);
-        user.setRoles(roles);
-        user.setPassword(bCryptPasswordEncoder.encode(user.getPassword()));
-        userRepository.save(user);
-        return true;
-    }
-
-    @Transactional
-    public boolean saveUser(User user, Set<Role> roles) {
-        user.setRoles(roles);
-        user.setPassword(bCryptPasswordEncoder.encode(user.getPassword()));
-        userRepository.save(user);
-        return true;
-    }
-
-    @Transactional
-    public List<User> getListAllUsers() {
-        return userRepository.findAll();
-    }
-
-    @Transactional()
-    public User findUserById(int id) {
-        Optional<User> user = userRepository.findById(id);
-        return user.orElse(new User());
-    }
-    @Transactional
-    public void updateUser(User user, List<String> rolesFromView) {
-
-        user.setPassword(bCryptPasswordEncoder.encode(user.getPassword()));
-        if (rolesFromView == null) {
-            user.setRoles(Collections.singleton(new Role(1, "ROLE_USER")));
-        } else {
-            user.setRoles(roleSerivce.findByRoleNameIn(rolesFromView));
-        }
-        userRepository.save(user);
-    }
-    @Transactional
-    public void deleteUser(int id) {
-        userRepository.deleteById(id);
+    public User getAuthUser() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return userRepository.findByUsername(auth.getName());
     }
 }
-
-
